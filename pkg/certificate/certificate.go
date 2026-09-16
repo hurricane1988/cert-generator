@@ -23,9 +23,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
+	"log/slog"
 	"math/big"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	"path/filepath"
 	"time"
 )
 
@@ -34,32 +36,31 @@ const (
 	DefaultTlsCrt = "tls.crt"
 )
 
-type Certificate interface {
-	CreateCertificate()
-	WriteFile(filepath string, cert *bytes.Buffer) error
+// Config holds all parameters needed to generate a certificate.
+type Config struct {
+	Country       []string
+	Organization  []string
+	Domains       []string
+	CommonName    string
+	ValidateYears int
+	CertPath      string
 }
 
-func NewCertificate(tlsOptions Options) Certificate {
-	return &tlsOptions
-}
-
-// CreateCertificate 生成TLS证书
-func (o *Options) CreateCertificate() {
-	Log := log.FromContext(o.ctx)
-	var caPEM, serverCertPEM, serverPrivyKeyPEM *bytes.Buffer
-
+// Generate creates a self-signed CA and a server certificate signed by it,
+// writing tls.crt and tls.key to cfg.CertPath.
+func Generate(cfg Config) error {
 	// CA 配置
 	ca := &x509.Certificate{
 		SerialNumber: big.NewInt(2024),
 		Subject: pkix.Name{
-			Country:      o.Country,
-			CommonName:   o.CommonName,
-			Organization: o.Organization,
+			Country:      cfg.Country,
+			CommonName:   cfg.CommonName,
+			Organization: cfg.Organization,
 		},
 		SignatureAlgorithm:    x509.SHA512WithRSA,
 		PublicKeyAlgorithm:    x509.RSA,
 		NotBefore:             time.Now(),
-		NotAfter:              time.Now().AddDate(o.ValidateYears, 0, 0),
+		NotAfter:              time.Now().AddDate(cfg.ValidateYears, 0, 0),
 		IsCA:                  true,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
@@ -69,21 +70,19 @@ func (o *Options) CreateCertificate() {
 	// CA私钥
 	caPrivKey, err := rsa.GenerateKey(cryptorand.Reader, 4096)
 	if err != nil {
-		Log.Error(err, "generate key failed",
-			"validate-years", o.ValidateYears,
-		)
+		slog.Error("generate CA key failed", "error", err)
+		return fmt.Errorf("generate CA key: %w", err)
 	}
 
 	// 自签名CA证书
 	caBytes, err := x509.CreateCertificate(cryptorand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
 	if err != nil {
-		Log.Error(err, "create certificate failed",
-			"validate-years", o.ValidateYears,
-		)
+		slog.Error("create CA certificate failed", "error", err)
+		return fmt.Errorf("create CA certificate: %w", err)
 	}
 
 	// 将CA证书进行PEM编码
-	caPEM = new(bytes.Buffer)
+	caPEM := new(bytes.Buffer)
 	_ = pem.Encode(caPEM, &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: caBytes,
@@ -91,16 +90,16 @@ func (o *Options) CreateCertificate() {
 
 	// 服务器证书配置
 	cert := &x509.Certificate{
-		DNSNames:     o.Domains,
+		DNSNames:     cfg.Domains,
 		SerialNumber: big.NewInt(2021),
 		Subject: pkix.Name{
-			CommonName:   o.CommonName,
-			Organization: o.Organization,
+			CommonName:   cfg.CommonName,
+			Organization: cfg.Organization,
 		},
 		SignatureAlgorithm: x509.SHA512WithRSA,
 		PublicKeyAlgorithm: x509.RSA,
 		NotBefore:          time.Now(),
-		NotAfter:           time.Now().AddDate(o.ValidateYears, 0, 0),
+		NotAfter:           time.Now().AddDate(cfg.ValidateYears, 0, 0),
 		SubjectKeyId:       []byte{1, 2, 3, 4, 6},
 		ExtKeyUsage:        []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:           x509.KeyUsageDigitalSignature,
@@ -109,66 +108,63 @@ func (o *Options) CreateCertificate() {
 	// 服务器私钥
 	serverPrivKey, err := rsa.GenerateKey(cryptorand.Reader, 4096)
 	if err != nil {
-		Log.Error(err, "generate server key failed",
-			"validate-years", o.ValidateYears,
-		)
+		slog.Error("generate server key failed", "error", err)
+		return fmt.Errorf("generate server key: %w", err)
 	}
 
 	// 签署服务器证书
 	serverCertBytes, err := x509.CreateCertificate(cryptorand.Reader, cert, ca, &serverPrivKey.PublicKey, caPrivKey)
 	if err != nil {
-		Log.Error(err, "generate server certificate failed",
-			"validate-years", o.ValidateYears,
-		)
+		slog.Error("sign server certificate failed", "error", err)
+		return fmt.Errorf("sign server certificate: %w", err)
 	}
 
 	// 将服务器证书进行PEM编码
-	serverCertPEM = new(bytes.Buffer)
+	serverCertPEM := new(bytes.Buffer)
 	_ = pem.Encode(serverCertPEM, &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: serverCertBytes,
 	})
 
 	// 将服务器私钥进行PEM编码
-	serverPrivyKeyPEM = new(bytes.Buffer)
+	serverPrivyKeyPEM := new(bytes.Buffer)
 	_ = pem.Encode(serverPrivyKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(serverPrivKey),
 	})
-	err = os.MkdirAll(o.CertPath, os.ModeDir)
-	if err != nil {
-		Log.Error(err, "failed mkdir cert save path",
-			"directory", o.CertPath,
-		)
+
+	if err := os.MkdirAll(cfg.CertPath, 0755); err != nil {
+		slog.Error("create cert directory failed", "error", err, "path", cfg.CertPath)
+		return fmt.Errorf("mkdir %s: %w", cfg.CertPath, err)
 	}
 
 	// 写入证书文件
-	err = o.WriteFile(o.CertPath+"/"+DefaultTlsCrt, serverCertPEM)
-	if err != nil {
-		Log.Error(err, "failed save"+DefaultTlsCrt,
-			"directory", o.CertPath,
-		)
+	crtPath := filepath.Join(cfg.CertPath, DefaultTlsCrt)
+	if err := writeFile(crtPath, serverCertPEM); err != nil {
+		slog.Error("save certificate failed", "error", err, "path", crtPath)
+		return fmt.Errorf("write %s: %w", crtPath, err)
 	}
+	slog.Info("certificate saved", "path", crtPath)
+
 	// 写入证书秘钥文件
-	err = o.WriteFile(o.CertPath+"/"+DefaultTlsKey, serverPrivyKeyPEM)
-	if err != nil {
-		Log.Error(err, "failed save"+DefaultTlsKey,
-			"directory", o.CertPath,
-		)
+	keyPath := filepath.Join(cfg.CertPath, DefaultTlsKey)
+	if err := writeFile(keyPath, serverPrivyKeyPEM); err != nil {
+		slog.Error("save private key failed", "error", err, "path", keyPath)
+		return fmt.Errorf("write %s: %w", keyPath, err)
 	}
+	slog.Info("private key saved", "path", keyPath)
+
+	return nil
 }
 
-// WriteFile 将证书写入文件
-func (o *Options) WriteFile(filepath string, cert *bytes.Buffer) error {
-	f, err := os.Create(filepath)
+// writeFile 将证书写入文件
+func writeFile(path string, cert *bytes.Buffer) error {
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
 	_, err = f.Write(cert.Bytes())
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }

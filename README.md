@@ -1,72 +1,78 @@
 ## Cert Generator
 
-[]()
+[![Go](https://img.shields.io/badge/Go-1.27.1-blue.svg)](https://go.dev)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 
 ---
 
 ### Description
 
 ---
-cert-generator is a tool to generate certs and to simplify the process and complexity of generating certificates.
+
+`cert-generator` is a command-line tool for generating self-signed CA certificates and server certificates. It also provides a `parse` subcommand to inspect and display SSL/TLS certificate details in a formatted table view.
 
 ### Getting Started
 
 ---
 
-- [x] build the exec binary.
+#### Build
+
 ```shell
 make build
 ```
 
+#### Usage
+
 ```shell
-bin/cert-generator
-```
-- [x] get help information
-```shell
+# Show help
 bin/cert-generator --help
-```
 
-```shell
-Usage of bin/cert-generator:
-  -ca-common-name string
-        The common name of CA.
-  -ca-country string
-        The country of CA, multiple items separated by ',', Default: CN. (default "CN")
-  -ca-domains string
-        The domain of CA, multiple items separated by ','.
-  -ca-organization string
-        The organization of CA, multiple items separated by ','
-  -ca-years int
-        The validate years of CA, Default: 50. (default 50)
-  -cert-path string
-        The path to save certificate. (default "/tmp")
-  -kubeconfig string
-        Paths to a kubeconfig. Only required if out-of-cluster.
-  -zap-devel
-        Development Mode defaults(encoder=consoleEncoder,logLevel=Debug,stackTraceLevel=Warn). Production Mode defaults(encoder=jsonEncoder,logLevel=Info,stackTraceLevel=Error)
-  -zap-encoder value
-        Zap log encoding (one of 'json' or 'console')
-  -zap-log-level value
-        Zap Level to configure the verbosity of logging. Can be one of 'debug', 'info', 'error', or any integer value > 0 which corresponds to custom debug levels of increasing verbosity
-  -zap-stacktrace-level value
-        Zap Level at and above which stacktraces are captured (one of 'info', 'error', 'panic').
-  -zap-time-encoding value
-        Zap time encoding (one of 'epoch', 'millis', 'nano', 'iso8601', 'rfc3339' or 'rfc3339nano'). Defaults to 'epoch'.
-```
-- [x] generate a cert
-```shell
-bin/cert-generator -ca-country=china -ca-common-name=shenzhen -ca-domains=kube-system.metrics-server.svc,kube-system.coredns.svc -ca-organization=kubernetes -ca-years=50
-```
+# Generate a certificate
+bin/cert-generator \
+  --country CN \
+  --organization "My Org" \
+  --domains "example.com,www.example.com" \
+  --common-name "example.com" \
+  --years 10 \
+  --cert-path /tmp/certs
 
+# Parse and display certificate details
+bin/cert-generator parse /tmp/certs/tls.crt
+```
 ```shell
---------------------------------------------------------------------------------------------
-#   CA Country: china
-#   CA Organization: kubernetes
-#   CA Domains: kube-system.metrics-server.svc,kube-system.coredns.svc
-#   Cert Path: /tmp
-#   Common Name: shenzhen
-#   Validate Years: 50 years
-#   CRT: /tmp/tls.crt
-#   Key: /tmp/tls.key
---------------------------------------------------------------------------------------------
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                                       证书解析结果                                      │
+│ 文件:                    │ /tmp/certs/tls.crt                                           │
+├──────────────────────────┴──────────────────────────────────────────────────────────────┤
+│                                    主题信息 (Subject)                                   │
+│ CN  (通用名称)           │ example.com                                                  │
+│ O   (组织)               │ My Org                                                       │
+├──────────────────────────┴──────────────────────────────────────────────────────────────┤
+│                                   签发者信息 (Issuer)                                   │
+│ CN  (通用名称)           │ example.com                                                  │
+│ C   (国家)               │ CN                                                           │
+│ O   (组织)               │ My Org                                                       │
+├──────────────────────────┴──────────────────────────────────────────────────────────────┤
+│                                         证书信息                                        │
+│ 版本 (Version)           │ 3                                                            │
+│ 序列号 (Serial Number)   │ 07:E5                                                        │
+│ 签名算法                 │ SHA512-RSA                                                   │
+│ 颁发时间 (Not Before)    │ 2026-09-16 02:35:43                                          │
+│ 过期时间 (Not After)     │ 2036-09-16 02:35:43                                          │
+│ 有效期                   │ 3652 天                                                      │
+├──────────────────────────┴──────────────────────────────────────────────────────────────┤
+│                                   指纹 (Fingerprints)                                   │
+│ SHA1                     │ 1C:E9:89:6F:52:95:C3:10:3A:6A:7A:9B:E2:63:DA:7D:C7:7B:AA:DC  │
+│ SHA256                   │ C8:CE:F4:FE:17:D9:8A:08:EF:88:02:0A:20:8A:2F:A7:E1:06:6A:FD: │
+│                          │ 6D:BB:72:E3:3B:44:C4:2A:85:E5:C6:2D                          │
+├──────────────────────────┴──────────────────────────────────────────────────────────────┤
+│                                       备用名 (SAN)                                      │
+│ DNS Names                │ example.com, www.example.com                                 │
+│ Key Usage                │ Digital Signature                                            │
+│ Ext Key Usage            │ Client Authentication, Server Authentication                 │
+├──────────────────────────┴──────────────────────────────────────────────────────────────┤
+│                                    公钥 (Public Key)                                    │
+│ 算法 (Algorithm)         │ RSA                                                          │
+│ 强度 (Key Size)          │ 4096 bit                                                     │
+└──────────────────────────┴──────────────────────────────────────────────────────────────┘
 ```

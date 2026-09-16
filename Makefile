@@ -44,11 +44,11 @@ vet: ## Run go vet against code.
 
 .PHONY: build
 build: fmt vet ## Build cert-generator binary.
-	go build -o bin/cert-generator cmd/main.go
+	go build -o bin/cert-generator ./cmd/cert-generator/main.go
 
 .PHONY: run
 run: fmt vet ## Run a cert-generator from your host.
-	go run ./cmd/main.go
+	go run ./cmd/cert-generator/main.go
 
 
 ## Location to install dependencies to
